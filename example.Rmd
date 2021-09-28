@@ -9,22 +9,226 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r}
+library(plotly)
+library(tidyverse)
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+library(tidyverse)
+health_full <- read_csv("https://chronicdata.cdc.gov/api/views/swc5-untb/rows.csv?accessType=DOWNLOAD&bom=true&format=true")
+head(health_full)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+year <- 2017:2020
+quarters <- 1:4
+type <- "Electric"
+
+pge_elec <- NULL
+
+for(quarter in quarters) {
+  
+  filename <- 
+    paste0(
+      "pge/PGE_",
+      year,
+      "_Q",
+      quarter,
+      "_",
+      type,
+      "UsageByZip.csv"
+    )
+
+  print(filename)
+  
+  temp <- read_csv(filename)
+  
+  pge_elec <- rbind(pge_elec,temp)
+  # Note rbind requires field names to be consistent for every new thing that you add.
+
+  saveRDS(pge_elec, "pge_elec.rds")
+}
+```
+
+
+```{r}
+pge_filter <- filter(pge_elec, CUSTOMERCLASS %in% c("Elec- Residential","Elec- Commercial"))
+
+
+names(pge_filter)
+head(pge_filter)
+
+
+pge_select <-
+  select(
+    pge_filter,
+  )
+pge_select <-
+  select(
+    pge_filter,
+    -c(COMBINED, AVERAGEKWH)
+  )
+
+
+pge_group <-
+  group_by(
+    pge_select,
+    YEAR,
+    MONTH,
+    CUSTOMERCLASS
+  )
+
+
+pge_summarize <-
+  summarize(
+    pge_group,
+    TOTALKWH = 
+      sum(
+        TOTALKWH, 
+        na.rm = T
+      )
+  )
+
+
+pge_wide <-
+  pivot_wider(
+    pge_summarize,
+    names_from = CUSTOMERCLASS,
+    values_from = TOTALKWH
+  )
+
+
+pge_wide
+
+pge_tidy <-
+  pivot_longer(
+    pge_wide,
+    c("Elec- Commercial", "Elec- Residential"),
+    names_to = "CUSTOMERCLASS",
+    values_to = "TOTALKWH"
+  )
+
+pge_tidy
+
+
+
+pge_summarize <-
+  summarize(
+    pge_group,
+    TOTALKWH = 
+      sum(
+        TOTALKWH, 
+        na.rm = T
+      ),
+    TOTALCUSTOMERS =
+      sum(
+        TOTALCUSTOMERS,
+        na.rm = T
+      )
+  )
+
+pge_mutate <-
+  mutate(
+    pge_summarize,
+    AVERAGEKWH =
+      TOTALKWH/TOTALCUSTOMERS
+  ) %>%
+  mutate(
+    DATE2 = 
+      paste(
+        YEAR,
+        MONTH, 
+        "01",
+        sep="-"
+      ) %>% as.Date()
+  )
+
+
+pge_mutate
+
+
+
+# piping practice
+```
+
+```{r}
+pge_final_elec <-
+  pge_elec %>% 
+  filter(
+    CUSTOMERCLASS %in% 
+      c("Elec- Residential", "Elec- Commercial")
+  ) %>% 
+  mutate(
+    DATE = 
+      paste(
+        YEAR,
+        MONTH, 
+        "01",
+        sep="-"
+      ) %>% as.Date()
+  ) %>% 
+  group_by(DATE, CUSTOMERCLASS) %>% 
+    select(
+      -c(YEAR, MONTH, COMBINED, AVERAGEKWH)
+    ) %>%
+  summarize(
+    TOTALKBTU = 
+      sum(
+        3.41214*TOTALKWH, 
+        na.rm = T
+      ),
+    TOTALCUSTOMERS =
+      sum(
+        TOTALCUSTOMERS,
+        na.rm = T
+      )
+  ) %>% 
+  mutate(
+    AVERAGEKBTU =
+      TOTALKBTU/TOTALCUSTOMERS)
+  
+pge_final_elec
+
+
+```
+
+
+```{r}
+library(tidyverse)
+library(plotly)
+
+pge_chart_elec <-
+  pge_final_elec %>% 
+  ggplot() +
+  geom_bar(
+    aes(
+      x = DATE,
+      y = TOTALKBTU,
+      fill = CUSTOMERCLASS
+    ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Month",
+    y = "kBTU",
+    title = "PG&E Territory Monthly Electricity Usage, 2017-2020",
+    fill = "Electricity Type"
+  )
+
+pge_chart_elec
+
+pge_chart_elec %>% ggplotly()
+
+pge_chart_elec %>% 
+  ggplotly() %>% 
+  layout(
+    xaxis = list(fixedrange = T),
+    yaxis = list(fixedrange = T)
+  ) %>% 
+  config(displayModeBar = F)
+
+```
+
