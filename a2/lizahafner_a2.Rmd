@@ -1,0 +1,299 @@
+---
+title: "lizahafner_a2"
+author: "Liza Hafner"
+date: "10/21/2021"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(sf)
+library(tigris)
+library(mapview)
+library(leaflet)
+
+
+ca_counties <- counties("CA", cb = T, progress_bar = F)
+
+st_crs(ca_counties)
+```
+
+
+```{r}
+#projection transformation example from text
+projection <- "+proj=utm +zone=10 +ellps=GRS80 +datum=NAD83 +units=ft +no_defs"
+
+ca_counties_transformed <- 
+  ca_counties %>% 
+  st_transform(4326) %>% 
+  st_transform(26910) %>% 
+  st_transform(projection) %>% 
+  st_transform(st_crs(ca_counties))
+```
+
+
+```{r}
+ggplot(ca_counties) + geom_sf()
+
+mapview(ca_counties)
+
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(
+    data = ca_counties
+  ) %>%
+  addMarkers(
+    data = ca_counties %>% 
+      st_centroid())
+```
+
+
+```{r}
+#Bay Area counties filter chunk :)
+bay_county_names <-
+  c(
+    "Alameda",
+    "Contra Costa",
+    "Marin",
+    "Napa",
+    "San Francisco",
+    "San Mateo",
+    "Santa Clara",
+    "Solano",
+    "Sonoma"
+  )
+
+bay_counties <-
+  counties("CA", cb = T, progress_bar = F) %>%
+  filter(NAME %in% bay_county_names)
+```
+
+
+```{r}
+ggplot(bay_counties) + geom_sf()
+
+ca_cities <- places("CA", cb = T, progress_bar = FALSE)
+bay_cities <- ca_cities[bay_counties, ]
+mapview(bay_counties, alpha.regions = 0) + mapview(bay_cities)
+
+bay_cities_within <- 
+  ca_cities %>% #within this boi
+  st_centroid() %>% #
+  .[bay_counties, ] %>% #.[ indicates that it's the argument for the above line
+  st_drop_geometry() %>% #drops geometry so becomes a dataframe instead of sf 
+  left_join(ca_cities %>% select(GEOID)) %>% #mash the new ca_cities via matching GEOID; select keeps the geometry as well as GEOID columns! very sneaky, very useful :)
+  st_as_sf() #make it back into a sf with readable geometry data 
+
+#ALT CODE FOR 84-90: A neat trick with sf objects is to use brackets to filter one collection of geometries to only those objects that intersect with geometries from another sf object, as shown.
+bay_cities_within <-
+  ca_cities[which(ca_cities$GEOID %in% st_centroid(ca_cities)[bay_counties, ]$GEOID), ]
+
+#okay let's walk through it now: bay_cities_within is a filtered slice of ca_cities; inside the brackets, we define the subset (which(ca_cities$GEOID %in% st_centroid(ca_cities)[bay_counties, ]$GEOID)). which() just selects the TRUE indices of the inner bit: the GEOID of the ca_cities / %in% / the GEOID of the group where the centroid of the city is within bay_counties. The GEOID subselection ends up being the filter we use to get the slice out of ca_cities to define bay_cities_within. Go team!!! (sorry to shikha/jing/derek for the deranged commenting xoxo)
+
+
+#self-note: both of these are just a scary-looking versions of the alpha equations you learned in semprag! you can read this! it's just ugly beep boop grammar!!! 
+
+
+bay_cities_within <-
+  ca_cities %>% 
+  st_centroid() %>% 
+  .[bay_counties, ] %>% 
+  st_drop_geometry() %>% 
+  left_join(ca_cities %>% select(GEOID)) %>% 
+  st_as_sf()
+
+
+mapview(bay_counties, alpha.regions = 0) + mapview(bay_cities_within, label = "NAME")
+
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(
+    data = bay_counties,
+    fill = F,
+    weight = 2,
+    label = ~NAME
+  ) %>%
+  addPolygons(
+    data = bay_cities %>% 
+      filter(!GEOID %in% bay_cities_within$GEOID),
+    color = "red",
+    label = ~NAME
+  ) %>% 
+  addPolygons(
+    data = bay_cities_within,
+    color = "green",
+    label = ~NAME
+  )
+
+```
+
+```{r}
+bay_cbgs <- block_groups("CA", bay_county_names[1:9], cb = T, progress_bar = F)
+
+bay_cbgs <- 
+  bay_county_names %>% 
+  map_dfr(function(county) {
+    block_groups("CA", county, cb = T, progress_bar = F)
+  })
+
+bay_cbgs_clip <- st_read("https://opendata.arcgis.com/datasets/037fc1597b5a4c6994b89c46a8fb4f06_0.geojson")
+
+ggplot(bay_cbgs_clip)+geom_sf()
+
+```
+
+```{r}
+usa_zips <- 
+  zctas(cb = T, progress_bar = F)
+
+
+library(tidyverse)
+
+year <- 2020
+quarters <- 1:4
+type <- "Electric"
+
+pge_20_elec <- NULL
+
+for(quarter in quarters) {
+  
+  filename <- 
+    paste0(
+      "PGE_",
+      year,
+      "_Q",
+      quarter,
+      "_",
+      type,
+      "UsageByZip.csv"
+    )
+
+  print(filename)
+  
+  temp <- read_csv(filename)
+  
+  pge_20_elec <- rbind(pge_20_elec,temp)
+  # Note rbind requires field names to be consistent for every new thing that you add.
+
+  saveRDS(pge_20_elec, "pge_20_elec.rds") 
+}
+
+pge_20_res_elec <-
+  pge_20_elec %>% 
+  filter(CUSTOMERCLASS == "Elec- Residential") %>% 
+  mutate(
+    ZIPCODE = ZIPCODE %>% as.character()
+  ) %>% 
+  group_by(ZIPCODE) %>% 
+  summarize(
+    TOTALKWH = sum(TOTALKWH, na.rm = T)
+  ) %>% 
+  right_join(
+    bay_zips %>% select(GEOID10),
+    by = c("ZIPCODE" = "GEOID10")
+  ) %>% 
+  st_as_sf() %>% 
+  st_transform(4326)
+
+```
+
+
+```{r}
+}
+
+bay_zips <-
+  usa_zips %>% 
+  st_centroid() %>% 
+  .[bay_counties, ] %>% 
+  st_drop_geometry() %>% 
+  left_join(usa_zips %>% select(GEOID10)) %>% 
+  st_as_sf()
+
+pge_20_res_elec <-
+  pge_20_elec %>% 
+  filter(CUSTOMERCLASS == "Elec- Residential") %>% 
+  mutate(
+    ZIPCODE = ZIPCODE %>% as.character()
+  ) %>% 
+  group_by(ZIPCODE) %>% 
+  summarize(
+    TOTALKWH = sum(TOTALKWH, na.rm = T)
+  ) %>% 
+  right_join(
+    bay_zips %>% select(GEOID10),
+    by = c("ZIPCODE" = "GEOID10")
+  ) %>% 
+  st_as_sf() %>% 
+  st_transform(4326)
+
+res_pal <- colorNumeric(
+  palette = "Reds",
+  domain = 
+    pge_20_res_elec$TOTALKWH
+)
+
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(
+    data = pge_20_res_elec,
+    fillColor = ~res_pal(TOTALKWH),
+    color = "white",
+    opacity = 0.5,
+    fillOpacity = 0.5,
+    weight = 1,
+    label = ~paste0(
+      round(TOTALKWH), 
+      " kWh total in ",
+      ZIPCODE
+    ),
+    highlightOptions = highlightOptions(
+      weight = 2,
+      opacity = 1
+    )
+  ) %>% 
+  addLegend(
+    data = pge_20_res_elec,
+    pal = res_pal,
+    values = ~TOTALKWH,
+    title = "Total Residential<br>kWh, 2020"
+  )
+
+```
+
+
+```{r}
+health_full <- read_csv("https://chronicdata.cdc.gov/api/views/cwsq-ngmh/rows.csv?accessType=DOWNLOAD")
+
+ca_tracts <- tracts("CA", cb = T, progress_bar = F)
+
+bay_phys_health_18 <-
+  health_ca %>% 
+  filter(
+    Measure == "Physical health not good for >=14 days among adults aged >=18 years",
+    Year == 2018
+  ) %>% 
+  left_join(
+    ca_tracts %>% select(GEOID),
+    by = c("LocationName" = "GEOID")
+  ) %>% 
+  st_as_sf() %>% 
+  st_centroid() %>% 
+  .[bay_counties, ] %>% 
+  st_drop_geometry() %>% 
+  left_join(
+    ca_tracts %>% select(GEOID),
+    by = c("LocationName" = "GEOID")
+  ) %>% 
+  st_as_sf()
+
+
+```
+
+
+
+
