@@ -1,0 +1,126 @@
+---
+title: "A1 Support"
+author: "Derek Ouyang"
+date: "9/9/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+knitr::opts_chunk$set(warning = F, message = F)
+library(tigris)
+library(tidyverse)
+library(sf)
+library(mapview)
+library(leaflet)
+library(censusapi)
+Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
+```
+
+First, you'll need to download all the individual zip files yourself and unzip the CSVs inside them into your working directory (in my case they're in a folder called pge). From there, you should adapt the loop code from 1.6 to be applied to more files. One way to approach this is using three nested for loops. This loop structure essentially helps you construct the different file names. Otherwise, there are two other special issues to address before the code will run smoothly:
+
+- The year 2021 doesn't have all 4 quarters of data, so when your for loop hits 2021 Q3, it will try to read a file that doesn't exist and cause an error, which causes you to lose your whole process. You want to be able to skip files that don't exist. The `next` operation moves on to the next iteration of the loop, and would be useful here.
+- The electricity and gas CSVs are similar except for the units of the energy, which means different field names. Electricity has `TOTALKWH` and `AVERAGEKWH`, and Gas has `TOTALTHM` and `AVERAGETHM`. You need to use mutate to convert these values to `TOTALKBTU` (Average KBTU isn't necessary for this assignment) and remove the original fields before rbinding the dataframes together. Since you will know whether you're dealing with an Electricity or Gas dataset using the `type` variable, you can use this within if statements, or do the equivalent inside of a pipeline.
+
+```{r}
+years <- ___:___
+quarters <- ___:___
+types <- c(___,___)
+pge_data_raw <- ___
+for(year in ___) {
+  for(quarter in ___) {
+    for(type in ___) {
+      
+      filename <- 
+        paste0(
+          ___,
+          ___,
+          ___,
+          ___,
+          ___,
+          ___,
+          ___
+        )
+  
+      if(!file.exists(__)) ___
+      
+      temp <- read_csv(___)
+      
+      if(type == ___) {
+        temp <-
+          temp %>%
+          mutate(TOTALKBTU = ___ * ___) %>%
+          select(-___, -___)
+      }
+      if(type == ___) {
+        temp <-
+          temp %>%
+          mutate(TOTALKBTU = ___ * ___) %>%
+          select(-___, -___)
+      }
+      
+      pge_data_raw <- 
+        rbind(___,___)
+      
+    }
+  }
+}
+```
+
+There is one genuine problem with the data that needs to be solved, but it is hard to notice at this stage, and hard to notice at all until you make your first plots. You won't be penalized for not correcting it, but be on the lookout for something odd in the data, and if you find it, think about how to address it in your for loop.
+
+Next, you should explore the dataframe to notice that you only need 4 customer classes. Then, using the techniques from Chapter 1.7, you can manipulate the dataframe to give you total KBTU per month. To enable the dataframe to plot with time on the X-axis, it helps to create a `DATE` field that is an alphanumerically increasing string, or is a full Date object (as I'm guiding below). 
+
+```{r}
+pge_data <-
+  pge_data_raw %>% 
+  filter(
+    CUSTOMERCLASS %in% ___
+  ) %>% 
+  group_by(
+    ___, 
+    ___, 
+    ___
+  ) %>% 
+  summarize(
+    TOTALKBTU = sum(___, na.rm = T)
+  ) %>% 
+  mutate(
+    DATE = 
+      paste(
+        ___,
+        ___, 
+        "01",
+        sep="-"
+      ) %>% as.Date()
+  )
+```
+
+Next, write a `ggplot()` pipeline for the residential time series. 
+
+```{r}
+pge_data %>% 
+  filter(CUSTOMERCLASS %in% ___) %>% 
+  ggplot() +
+  geom_line(
+    aes(
+      x = ___,
+      y = ___,
+      color = ___
+    )
+  ) + 
+  labs(
+    x = ___,
+    y = ___,
+    title = ___,
+    color = ___
+  ) +
+  theme(
+    legend.position = ___
+  )
+```
+
+You should now write some similar code to visualize commercial energy.
+
+Include commentary throughout this document, replacing my own commentary.
